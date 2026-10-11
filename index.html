@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>alpha test 0.0.4</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #b8cce0;
+    font-family: system-ui, -apple-system, sans-serif;
+    touch-action: none;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+  canvas { display: block; touch-action: none; }
+
+  #version-label, #fps-label {
+    position: fixed;
+    top: 10px;
+    z-index: 15;
+    pointer-events: none;
+    user-select: none;
+    color: #ffffff;
+    font-family: monospace, system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+  }
+  #version-label { left: 12px; }
+  #fps-label     { right: 12px; }
+
+  #crosshair {
+    position: fixed; left: 50%; top: 50%;
+    width: 20px; height: 20px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.9;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute;
+    background: #fff;
+    mix-blend-mode: difference;
+  }
+  #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; transform: translateX(-50%); }
+  #crosshair::after  { top: 50%; left: 0; height: 2px; width: 100%; transform: translateY(-50%); }
+
+  #joystick {
+    position: fixed;
+    left: 18px; bottom: 24px;
+    width: 132px; height: 132px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    border: 2px solid rgba(255, 255, 255, 0.32);
+    touch-action: none;
+    z-index: 20;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    display: none;
+  }
+  #joystick-knob {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 58px; height: 58px;
+    margin: -29px 0 0 -29px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.65);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    pointer-events: none;
+  }
+
+  #jump-btn {
+    position: fixed;
+    right: 28px; bottom: 36px;
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.22);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    color: #fff;
+    font-size: 38px;
+    line-height: 1;
+    touch-action: none;
+    z-index: 20;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 0;
+    cursor: pointer;
+    display: none;
+  }
+  #jump-btn:active { background: rgba(255, 255, 255, 0.42); }
+
+  #menu-btn {
+    position: fixed;
+    top: 12px; left: 50%;
+    transform: translateX(-50%);
+    width: 48px; height: 38px;
+    background: rgba(0, 0, 0, 0.35);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    border-radius: 9px;
+    z-index: 30;
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 5px;
+    padding: 0;
+    cursor: pointer;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+  #menu-btn span {
+    display: block;
+    width: 24px; height: 3px;
+    background: #fff;
+    border-radius: 2px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.5);
+  }
+  #menu-btn:active { background: rgba(0, 0, 0, 0.55); }
+
+  #settings-panel {
+    position: fixed; inset: 0;
+    z-index: 100;
+    background: rgba(0, 0, 0, 0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: monospace, system-ui, sans-serif;
+  }
+  #settings-panel.hidden { display: none; }
+
+  .panel-box {
+    background: linear-gradient(180deg, #2b2b2b 0%, #1f1f1f 100%);
+    border: 2px solid #4a4a4a;
+    border-radius: 10px;
+    padding: 22px 26px 20px;
+    color: #fff;
+    min-width: 300px;
+    max-width: 90vw;
+    box-shadow: 0 12px 44px rgba(0,0,0,0.7), inset 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .panel-title {
+    font-size: 17px;
+    font-weight: bold;
+    letter-spacing: 1.5px;
+    margin-bottom: 18px;
+    text-align: center;
+    text-transform: uppercase;
+    color: #8fd0ff;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.8);
+  }
+  .panel-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+  .panel-label { font-size: 13px; color: #ccc; white-space: nowrap; letter-spacing: 0.5px; }
+  #sens-slider { flex: 1; accent-color: #8fd0ff; height: 5px; cursor: pointer; touch-action: manipulation; }
+  .panel-value { font-size: 15px; font-weight: bold; color: #8fd0ff; min-width: 24px; text-align: center; }
+  #close-settings {
+    display: block;
+    width: 100%;
+    padding: 10px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: bold;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    background: #3c6e3c;
+    color: #fff;
+    border: 2px solid #5a9a5a;
+    border-radius: 6px;
+    cursor: pointer;
+    text-shadow: 0 1px 0 rgba(0,0,0,0.5);
+    -webkit-tap-highlight-color: transparent;
+  }
+  #close-settings:active { background: #2e5a2e; }
+</style>
+</head>
+<body>
+
+<div id="version-label">alpha test 0.0.4</div>
+<div id="fps-label">-- fps</div>
+
+<button id="menu-btn" aria-label="Настройки"><span></span><span></span><span></span></button>
+
+<div id="crosshair"></div>
+<div id="joystick"><div id="joystick-knob"></div></div>
+<button id="jump-btn" aria-label="Прыжок">⤒</button>
+
+<div id="settings-panel" class="hidden">
+  <div class="panel-box">
+    <div class="panel-title">Настройки</div>
+    <div class="panel-row">
+      <span class="panel-label">Чувствительность</span>
+      <input id="sens-slider" type="range" min="1" max="10" step="1" value="5">
+      <span class="panel-value" id="sens-value">5</span>
+    </div>
+    <button id="close-settings">Закрыть</button>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================
+   0. ТАЧ-УСТРОЙСТВО + UI
+   ============================================================ */
+const isTouch = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+if (isTouch) {
+  document.getElementById('joystick').style.display = 'block';
+  document.getElementById('jump-btn').style.display = 'block';
+  document.getElementById('menu-btn').style.display = 'flex';
+}
+
+/* ============================================================
+   1. РЕНДЕР / СЦЕНА / КАМЕРА
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({ antialias: !isTouch, powerPreference: 'high-performance' });
+renderer.setPixelRatio(isTouch ? Math.min(devicePixelRatio, 1.5) : Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+const HORIZON = 0xb8cce0;
+scene.fog = new THREE.Fog(HORIZON, 14, 48);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 400);
+camera.rotation.order = 'YXZ';
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ============================================================
+   2. НЕБО
+   ============================================================ */
+{
+  const skyGeo = new THREE.SphereGeometry(150, 16, 12);
+  const skyMat = new THREE.ShaderMaterial({
+    uniforms: {
+      topColor:    { value: new THREE.Color(0x74a5f0) },
+      bottomColor: { value: new THREE.Color(HORIZON) },
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      void main() { vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }
+    `,
+    fragmentShader: `
+      uniform vec3 topColor; uniform vec3 bottomColor; varying vec3 vDir;
+      void main() {
+        float h = normalize(vDir).y;
+        float t = smoothstep(-0.08, 0.55, h);
+        gl_FragColor = vec4(mix(bottomColor, topColor, t), 1.0);
+      }
+    `,
+    side: THREE.BackSide, depthWrite: false, fog: false,
+  });
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  sky.frustumCulled = false; sky.renderOrder = -1;
+  scene.add(sky);
+  scene.userData.sky = sky;
+}
+
+/* ============================================================
+   3. ТЕКСТУРЫ (стиль Beta 1.8.1)
+   ============================================================ */
+function srgbToLinear(s) {
+  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+
+const texDrawers = {
+  grass_top(ctx) {
+    ctx.fillStyle = '#7bbf4a'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 140; i++) {
+      const x = (Math.random()*16)|0, y = (Math.random()*16)|0, r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#69aa3b' : r < 0.66 ? '#8ed05c' : '#5f9e33';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+  grass_side(ctx) {
+    ctx.fillStyle = '#79583a'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 110; i++) {
+      const x = (Math.random()*16)|0, y = (Math.random()*16)|0, r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#6a4d31' : r < 0.66 ? '#8a6845' : '#7a5a3e';
+      ctx.fillRect(x, y, 1, 1);
+    }
+    for (let x = 0; x < 16; x++) {
+      const h = 3 + ((Math.random()*3)|0);
+      for (let y = 0; y < h; y++) {
+        const r = Math.random();
+        ctx.fillStyle = r < 0.33 ? '#69aa3b' : r < 0.66 ? '#7bbf4a' : '#5f9e33';
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  },
+  dirt(ctx) {
+    ctx.fillStyle = '#79583a'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 160; i++) {
+      const x = (Math.random()*16)|0, y = (Math.random()*16)|0, r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#6a4d31' : r < 0.66 ? '#8a6845' : '#7a5a3e';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+  stone(ctx) {
+    ctx.fillStyle = '#7f7f7f'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 160; i++) {
+      const x = (Math.random()*16)|0, y = (Math.random()*16)|0, r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#6e6e6e' : r < 0.66 ? '#8c8c8c' : '#757575';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+  bedrock(ctx) {
+    ctx.fillStyle = '#555'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 220; i++) {
+      const x = (Math.random()*16)|0, y = (Math.random()*16)|0, r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#3a3a3a' : r < 0.66 ? '#6a6a6a' : '#4a4a4a';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+};
+
+const ATLAS_TILES = ['grass_top', 'grass_side', 'dirt', 'stone', 'bedrock'];
+const TILE_INDEX = {};
+ATLAS_TILES.forEach((n, i) => TILE_INDEX[n] = i);
+
+function buildAtlas() {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  for (let i = 0; i < ATLAS_TILES.length; i++) {
+    const tx = i % 4, ty = Math.floor(i / 4);
+    const tc = document.createElement('canvas');
+    tc.width = tc.height = 16;
+    const tctx = tc.getContext('2d');
+    tctx.imageSmoothingEnabled = false;
+    texDrawers[ATLAS_TILES[i]](tctx);
+    ctx.drawImage(tc, tx * 16, ty * 16);
+  }
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const atlasTex = buildAtlas();
+
+function tileUV(index) {
+  const tx = index % 4, ty = Math.floor(index / 4), s = 0.25;
+  const u0 = tx * s, u1 = u0 + s;
+  const v0 = 1 - (ty + 1) * s, v1 = v0 + s;
+  return { u0, v0, u1, v1 };
+}
+
+/* ============================================================
+   4. БЛОКИ + ГЕОМЕТРИЯ
+   ============================================================ */
+const BLOCK_DEFS = {
+  grass:   { top: 'grass_top', side: 'grass_side', bottom: 'dirt' },
+  dirt:    { all: 'dirt' },
+  stone:   { all: 'stone' },
+  bedrock: { all: 'bedrock' },
+};
+const blockTypes = ['grass', 'dirt', 'stone', 'bedrock'];
+const FACE_SHADE_SRGB = [0.6, 0.6, 1.0, 0.5, 0.8, 0.8];
+
+function makeBlockGeo(type) {
+  const geo = new THREE.BoxGeometry(1, 1, 1);
+  const def = BLOCK_DEFS[type];
+
+  const colors = new Float32Array(24 * 3);
+  let ci = 0;
+  for (let f = 0; f < 6; f++) {
+    const v = srgbToLinear(FACE_SHADE_SRGB[f]);
+    for (let k = 0; k < 4; k++) { colors[ci++] = v; colors[ci++] = v; colors[ci++] = v; }
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+
+  const faceTiles = [
+    def.all || def.side, def.all || def.side,
+    def.all || def.top || def.side, def.all || def.bottom || def.side,
+    def.all || def.side, def.all || def.side,
+  ];
+  const uv = geo.attributes.uv;
+  for (let f = 0; f < 6; f++) {
+    const { u0, v0, u1, v1 } = tileUV(TILE_INDEX[faceTiles[f]]);
+    const i = f * 4;
+    uv.setXY(i + 0, u0, v1);
+    uv.setXY(i + 1, u1, v1);
+    uv.setXY(i + 2, u0, v0);
+    uv.setXY(i + 3, u1, v0);
+  }
+  uv.needsUpdate = true;
+  return geo;
+}
+
+const MAX_PER_TYPE = 8192;
+const instancedMeshes = {};
+const instancedLists = { grass: [], dirt: [], stone: [], bedrock: [] };
+const blockMat = new THREE.MeshBasicMaterial({ map: atlasTex, vertexColors: true });
+
+for (const type of blockTypes) {
+  const geo = makeBlockGeo(type);
+  const im = new THREE.InstancedMesh(geo, blockMat, MAX_PER_TYPE);
+  im.count = 0;
+  im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  im.frustumCulled = false;
+  scene.add(im);
+  instancedMeshes[type] = im;
+}
+
+/* ============================================================
+   5. ГЕНЕРАЦИЯ МИРА (3 вариации случайно)
+   ============================================================ */
+const SIZE = 27;
+const BEDROCK_Y = -10;
+const SKY_TOP = 14;
+const bkey = (x, y, z) => x + ',' + y + ',' + z;
+const blocks = new Map();
+
+/* Хэш-шум */
+function hash2(a, b, seed) {
+  let n = (a * 374761393) ^ (b * 668265263) ^ (seed * 1442695041);
+  n = (n ^ (n >> 13)) * 1274126177;
+  return ((n ^ (n >> 16)) & 0x7fffffff) / 0x7fffffff;
+}
+function valueNoise(x, z, seed) {
+  const xi = Math.floor(x), zi = Math.floor(z);
+  const xf = x - xi, zf = z - zi;
+  const u = xf * xf * (3 - 2 * xf);
+  const v = zf * zf * (3 - 2 * zf);
+  const a = hash2(xi, zi, seed);
+  const b = hash2(xi + 1, zi, seed);
+  const c = hash2(xi, zi + 1, seed);
+  const d = hash2(xi + 1, zi + 1, seed);
+  return a * (1 - u) * (1 - v) + b * u * (1 - v) + c * (1 - u) * v + d * u * v;
+}
+
+/* --- 3 вариации: разные seed + разные формулы высоты --- */
+const WORLD_VARIANTS = [
+  // 0. Равнина — почти плоско, слегка волнистая
+  (x, z) => {
+    let h = valueNoise(x * 0.20, z * 0.20, 111) * 1.2;
+    h += valueNoise(x * 0.9,  z * 0.9,  222) * 0.5;
+    return Math.round(h);
+  },
+  // 1. Холмы — умеренные перепады
+  (x, z) => {
+    let h = valueNoise(x * 0.18, z * 0.18, 333) * 4.5;
+    h += valueNoise(x * 0.5,  z * 0.5,  444) * 1.8;
+    h += valueNoise(x * 1.3,  z * 1.3,  555) * 0.7;
+    return Math.round(h) - 1;
+  },
+  // 2. Горы — высокие пики и глубокие впадины
+  (x, z) => {
+    let h = valueNoise(x * 0.14, z * 0.14, 777) * 8.0;
+    h += valueNoise(x * 0.4,  z * 0.4,  888) * 3.0;
+    h += valueNoise(x * 1.1,  z * 1.1,  999) * 1.2;
+    return Math.round(h) - 2;
+  },
+];
+
+const VARIANT_NAMES = ['Равнина', 'Холмы', 'Горы'];
+
+/* Случайно выбираем вариацию */
+const worldVariantIndex = (Math.random() * WORLD_VARIANTS.length) | 0;
+const heightFn = WORLD_VARIANTS[worldVariantIndex];
+console.log('Мир:', VARIANT_NAMES[worldVariantIndex]);
+
+/* Генерируем */
+for (let x = 0; x < SIZE; x++) {
+  for (let z = 0; z < SIZE; z++) {
+    const sy = heightFn(x, z);
+    blocks.set(bkey(x, sy, z),     { x, y: sy,     z, type: 'grass' });
+    blocks.set(bkey(x, sy - 1, z), { x, y: sy - 1, z, type: 'dirt' });
+    blocks.set(bkey(x, sy - 2, z), { x, y: sy - 2, z, type: 'dirt' });
+    blocks.set(bkey(x, sy - 3, z), { x, y: sy - 3, z, type: 'dirt' });
+    for (let y = sy - 4; y > BEDROCK_Y; y--) {
+      blocks.set(bkey(x, y, z), { x, y, z, type: 'stone' });
+    }
+    blocks.set(bkey(x, BEDROCK_Y, z), { x, y: BEDROCK_Y, z, type: 'bedrock' });
+  }
+}
+
+/* ============================================================
+   6. РАСПРОСТРАНЕНИЕ СВЕТА (BFS)
+   ============================================================ */
+const LIGHT_MAX = 15;
+const DIRS6 = [[1,0,0],[-1,0,0],[0,1,0],[0,-1,0],[0,0,1],[0,0,-1]];
+let lightMap = new Map();
+
+function computeLight() {
+  lightMap = new Map();
+  const queue = [];
+
+  // Небесный свет сверху вниз
+  for (let x = 0; x < SIZE; x++) {
+    for (let z = 0; z < SIZE; z++) {
+      for (let y = SKY_TOP; y >= BEDROCK_Y - 1; y--) {
+        const k = bkey(x, y, z);
+        if (blocks.has(k)) break;
+        lightMap.set(k, LIGHT_MAX);
+        queue.push(x, y, z);
+      }
+    }
+  }
+
+  // BFS с затуханием -1
+  let head = 0;
+  while (head < queue.length) {
+    const x = queue[head++], y = queue[head++], z = queue[head++];
+    const curL = lightMap.get(bkey(x, y, z));
+    if (curL <= 1) continue;
+    const nextL = curL - 1;
+    for (let d = 0; d < 6; d++) {
+      const nx = x + DIRS6[d][0], ny = y + DIRS6[d][1], nz = z + DIRS6[d][2];
+      const nk = bkey(nx, ny, nz);
+      if (blocks.has(nk)) continue;
+      const oldL = lightMap.get(nk) || 0;
+      if (oldL < nextL) {
+        lightMap.set(nk, nextL);
+        queue.push(nx, ny, nz);
+      }
+    }
+  }
+}
+
+function getBlockBrightness(b) {
+  let maxL = 0;
+  for (let d = 0; d < 6; d++) {
+    const l = lightMap.get(bkey(b.x + DIRS6[d][0], b.y + DIRS6[d][1], b.z + DIRS6[d][2])) || 0;
+    if (l > maxL) maxL = l;
+  }
+  return 0.18 + 0.82 * (maxL / LIGHT_MAX);
+}
+
+/* ============================================================
+   7. ОТСЕЧЕНИЕ + ПЕРЕСТРОЕНИЕ ИНСТАНСОВ
+   ============================================================ */
+function isExposed(b) {
+  const { x, y, z, type } = b;
+  const checkBelow = type !== 'bedrock';
+  return (
+    !blocks.has(bkey(x + 1, y, z)) ||
+    !blocks.has(bkey(x - 1, y, z)) ||
+    !blocks.has(bkey(x, y + 1, z)) ||
+    (checkBelow && !blocks.has(bkey(x, y - 1, z))) ||
+    !blocks.has(bkey(x, y, z + 1)) ||
+    !blocks.has(bkey(x, y, z - 1))
+  );
+}
+
+let rebuildNeeded = true;
+function scheduleRebuild() { rebuildNeeded = true; }
+
+const _dummy = new THREE.Object3D();
+const _color = new THREE.Color();
+
+function rebuildInstances() {
+  const lists = { grass: [], dirt: [], stone: [], bedrock: [] };
+  for (const b of blocks.values()) {
+    if (!lists[b.type]) continue;
+    if (!isExposed(b)) continue;
+    lists[b.type].push(b);
+  }
+
+  for (const type of blockTypes) {
+    const im = instancedMeshes[type];
+    const list = lists[type];
+    im.count = list.length;
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      _dummy.position.set(b.x + 0.5, b.y + 0.5, b.z + 0.5);
+      _dummy.updateMatrix();
+      im.setMatrixAt(i, _dummy.matrix);
+      _color.setScalar(getBlockBrightness(b));
+      im.setColorAt(i, _color);
+    }
+    im.instanceMatrix.needsUpdate = true;
+    if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    instancedLists[type] = list;
+  }
+}
+
+/* ============================================================
+   8. ИГРОК И ФИЗИКА
+   ============================================================ */
+const player = {
+  pos: new THREE.Vector3(SIZE/2, 12, SIZE/2),
+  vel: new THREE.Vector3(),
+  radius: 0.3, height: 1.8, eye: 1.62,
+  speed: 5.0, jumpSpeed: 8.4, onGround: false,
+};
+
+// Спавн над центром мира
+{
+  const cx = Math.floor(SIZE/2), cz = Math.floor(SIZE/2);
+  for (let y = SKY_TOP; y > BEDROCK_Y; y--) {
+    if (blocks.has(bkey(cx, y, cz))) {
+      player.pos.set(cx + 0.5, y + 1.05, cz + 0.5);
+      break;
+    }
+  }
+}
+
+let yaw = 0, pitch = 0;
+
+function collides() {
+  const r = player.radius, h = player.height, p = player.pos;
+  const x0 = Math.floor(p.x - r), x1 = Math.floor(p.x + r);
+  const y0 = Math.floor(p.y),     y1 = Math.floor(p.y + h);
+  const z0 = Math.floor(p.z - r), z1 = Math.floor(p.z + r);
+  for (let x = x0; x <= x1; x++)
+    for (let y = y0; y <= y1; y++)
+      for (let z = z0; z <= z1; z++) {
+        if (!blocks.has(bkey(x, y, z))) continue;
+        if (x < p.x + r && x + 1 > p.x - r &&
+            y < p.y + h && y + 1 > p.y &&
+            z < p.z + r && z + 1 > p.z - r) return true;
+      }
+  return false;
+}
+
+function moveAxis(axis, delta) {
+  if (delta === 0) return;
+  const old = player.pos[axis];
+  player.pos[axis] += delta;
+  if (collides()) {
+    player.pos[axis] = old;
+    if (axis === 'y' && delta < 0) player.onGround = true;
+    player.vel[axis] = 0;
+  }
+}
+
+/* ============================================================
+   9. ЧУВСТВИТЕЛЬНОСТЬ
+   ============================================================ */
+let sensitivity = 5;
+const sensSlider = document.getElementById('sens-slider');
+const sensValueEl = document.getElementById('sens-value');
+try {
+  const saved = localStorage.getItem('alpha_test_sens');
+  if (saved) { const v = parseInt(saved, 10); if (v >= 1 && v <= 10) sensitivity = v; }
+} catch (_) {}
+sensSlider.value = sensitivity;
+sensValueEl.textContent = sensitivity;
+sensSlider.addEventListener('input', () => {
+  sensitivity = parseInt(sensSlider.value, 10);
+  sensValueEl.textContent = sensitivity;
+  try { localStorage.setItem('alpha_test_sens', sensitivity); } catch (_) {}
+});
+
+/* ============================================================
+   10. УПРАВЛЕНИЕ
+   ============================================================ */
+const keys = Object.create(null);
+const moveInput = { x: 0, y: 0 };
+
+addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'Space') e.preventDefault();
+});
+addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+const jumpBtn = document.getElementById('jump-btn');
+jumpBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); keys['Space'] = true; });
+jumpBtn.addEventListener('pointerup',     () => { keys['Space'] = false; });
+jumpBtn.addEventListener('pointercancel', () => { keys['Space'] = false; });
+jumpBtn.addEventListener('pointerleave',  () => { keys['Space'] = false; });
+
+const joyEl  = document.getElementById('joystick');
+const knobEl = document.getElementById('joystick-knob');
+let joyId = null;
+
+function joyUpdate(cx, cy) {
+  const r = joyEl.getBoundingClientRect();
+  const jx = r.left + r.width/2, jy = r.top + r.height/2;
+  let dx = cx - jx, dy = cy - jy;
+  const max = r.width/2, d = Math.hypot(dx, dy);
+  if (d > max) { dx = dx/d*max; dy = dy/d*max; }
+  knobEl.style.transform = `translate(${dx}px, ${dy}px)`;
+  moveInput.x = dx / max;
+  moveInput.y = dy / max;
+}
+function joyReset() {
+  moveInput.x = 0; moveInput.y = 0;
+  knobEl.style.transform = '';
+}
+joyEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (joyId !== null) return;
+  joyId = e.pointerId;
+  joyEl.setPointerCapture(e.pointerId);
+  joyUpdate(e.clientX, e.clientY);
+});
+joyEl.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== joyId) return;
+  joyUpdate(e.clientX, e.clientY);
+});
+joyEl.addEventListener('pointerup', (e) => {
+  if (e.pointerId !== joyId) return;
+  joyId = null; joyReset();
+});
+joyEl.addEventListener('pointercancel', (e) => {
+  if (e.pointerId !== joyId) return;
+  joyId = null; joyReset();
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (document.pointerLockElement !== canvas) return;
+  const s = sensitivity * 0.00044;
+  yaw   -= e.movementX * s;
+  pitch -= e.movementY * s;
+  const lim = Math.PI / 2 - 0.001;
+  pitch = Math.max(-lim, Math.min(lim, pitch));
+});
+
+let mouseDown = false;
+let breakCooldown = 0;
+
+let lookId = null;
+let lookStartX = 0, lookStartY = 0, lookLastX = 0, lookLastY = 0;
+let lookMoved = false;
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') {
+    if (document.pointerLockElement !== canvas) {
+      const p = canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});
+      return;
+    }
+    if (e.button === 0) { mouseDown = true; breakCooldown = 0; }
+    return;
+  }
+  if (lookId !== null) return;
+  lookId = e.pointerId;
+  lookStartX = lookLastX = e.clientX;
+  lookStartY = lookLastY = e.clientY;
+  lookMoved = false;
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== lookId) return;
+  const dx = e.clientX - lookLastX;
+  const dy = e.clientY - lookLastY;
+  lookLastX = e.clientX;
+  lookLastY = e.clientY;
+  if (Math.hypot(e.clientX - lookStartX, e.clientY - lookStartY) > 8) lookMoved = true;
+  if (lookMoved) {
+    const s = sensitivity * 0.001;
+    yaw   -= dx * s;
+    pitch -= dy * s;
+    const lim = Math.PI / 2 - 0.001;
+    pitch = Math.max(-lim, Math.min(lim, pitch));
+  }
+});
+
+document.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'mouse') { if (e.button === 0) mouseDown = false; return; }
+  if (e.pointerId !== lookId) return;
+  if (!lookMoved) breakBlock();
+  lookId = null;
+});
+document.addEventListener('pointercancel', (e) => {
+  if (e.pointerId === lookId) lookId = null;
+});
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ============================================================
+   11. ПАНЕЛЬ НАСТРОЕК
+   ============================================================ */
+const settingsPanel = document.getElementById('settings-panel');
+const closeBtn = document.getElementById('close-settings');
+const menuBtn  = document.getElementById('menu-btn');
+let wasLocked = false;
+
+function showSettings() { settingsPanel.classList.remove('hidden'); }
+function hideSettings() { settingsPanel.classList.add('hidden'); }
+
+function closeSettingsAndRelock() {
+  hideSettings();
+  if (!isTouch && document.pointerLockElement !== canvas) {
+    try { const p = canvas.requestPointerLock(); if (p && p.catch) p.catch(() => {}); } catch (_) {}
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !document.pointerLockElement &&
+      !settingsPanel.classList.contains('hidden')) hideSettings();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  const locked = document.pointerLockElement === canvas;
+  if (!locked && wasLocked) showSettings();
+  if (locked) hideSettings();
+  wasLocked = locked;
+});
+
+settingsPanel.addEventListener('click', (e) => { if (e.target === settingsPanel) closeSettingsAndRelock(); });
+closeBtn.addEventListener('click', closeSettingsAndRelock);
+menuBtn.addEventListener('click', (e) => { e.preventDefault(); showSettings(); });
+
+/* ============================================================
+   12. ЛУЧ ИЗ ЦЕНТРА ЭКРАНА
+   ============================================================ */
+const raycaster = new THREE.Raycaster();
+raycaster.far = 6;
+const SCREEN_CENTER = new THREE.Vector2(0, 0);
+const _meshesArray = blockTypes.map(t => instancedMeshes[t]);
+
+function getTarget() {
+  raycaster.setFromCamera(SCREEN_CENTER, camera);
+  const hits = raycaster.intersectObjects(_meshesArray, false);
+  if (!hits.length) return null;
+  const hit = hits[0];
+  let type = null;
+  for (const t of blockTypes) if (instancedMeshes[t] === hit.object) { type = t; break; }
+  if (!type) return null;
+  const block = instancedLists[type][hit.instanceId];
+  if (!block) return null;
+  return { hit, block };
+}
+
+function breakBlock() {
+  const t = getTarget();
+  if (!t) return;
+  if (t.block.type === 'bedrock') return;
+  blocks.delete(bkey(t.block.x, t.block.y, t.block.z));
+  computeLight();
+  scheduleRebuild();
+}
+
+const highlight = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
+  new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.4, fog: false })
+);
+highlight.visible = false;
+scene.add(highlight);
+
+/* ============================================================
+   13. ИГРОВОЙ ЦИКЛ
+   ============================================================ */
+const forward = new THREE.Vector3();
+const right   = new THREE.Vector3();
+const moveDir = new THREE.Vector3();
+
+let lastTime = performance.now();
+const fpsLabel = document.getElementById('fps-label');
+let fpsFrames = 0, fpsTimeAccum = 0;
+
+function update(dt) {
+  forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+  right.set(  Math.cos(yaw), 0, -Math.sin(yaw));
+
+  moveDir.set(0, 0, 0);
+  if (keys['KeyW'] || keys['ArrowUp'])    moveDir.add(forward);
+  if (keys['KeyS'] || keys['ArrowDown'])  moveDir.sub(forward);
+  if (keys['KeyD'] || keys['ArrowRight']) moveDir.add(right);
+  if (keys['KeyA'] || keys['ArrowLeft'])  moveDir.sub(right);
+  if (moveInput.x !== 0 || moveInput.y !== 0) {
+    moveDir.addScaledVector(forward, -moveInput.y);
+    moveDir.addScaledVector(right,    moveInput.x);
+  }
+  if (moveDir.lengthSq() > 1) moveDir.normalize();
+  moveDir.multiplyScalar(player.speed);
+
+  player.vel.x = moveDir.x;
+  player.vel.z = moveDir.z;
+
+  if (keys['Space'] && player.onGround) {
+    player.vel.y = player.jumpSpeed;
+    player.onGround = false;
+  }
+  player.vel.y -= 28 * dt;
+  if (player.vel.y < -50) player.vel.y = -50;
+
+  player.onGround = false;
+  moveAxis('x', player.vel.x * dt);
+  moveAxis('z', player.vel.z * dt);
+  moveAxis('y', player.vel.y * dt);
+
+  if (player.pos.y < BEDROCK_Y - 20) {
+    player.pos.set(SIZE/2, 15, SIZE/2);
+    player.vel.set(0, 0, 0);
+  }
+
+  camera.position.set(player.pos.x, player.pos.y + player.eye, player.pos.z);
+  camera.rotation.set(pitch, yaw, 0);
+  scene.userData.sky.position.copy(camera.position);
+
+  if (mouseDown) {
+    breakCooldown -= dt;
+    if (breakCooldown <= 0) { breakCooldown = 0.22; breakBlock(); }
+  }
+
+  const t = getTarget();
+  if (t) {
+    highlight.position.set(t.block.x + 0.5, t.block.y + 0.5, t.block.z + 0.5);
+    highlight.visible = true;
+  } else {
+    highlight.visible = false;
+  }
+}
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  const rawDt = (now - lastTime) / 1000;
+  lastTime = now;
+  const dt = Math.min(rawDt, 0.05);
+
+  fpsFrames++;
+  fpsTimeAccum += rawDt;
+  if (fpsTimeAccum >= 0.5) {
+    fpsLabel.textContent = Math.round(fpsFrames / fpsTimeAccum) + ' fps';
+    fpsFrames = 0; fpsTimeAccum = 0;
+  }
+
+  if (rebuildNeeded) { rebuildInstances(); rebuildNeeded = false; }
+
+  update(dt);
+  renderer.render(scene, camera);
+}
+
+computeLight();
+rebuildInstances();
+requestAnimationFrame(animate);
+</script>
+</body>
+</html>
