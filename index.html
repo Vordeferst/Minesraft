@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+<title>Кубики 3D — Beta 1.8.1</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #b8cce0;
+    font-family: system-ui, -apple-system, sans-serif;
+    touch-action: none;
+    overscroll-behavior: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+  canvas { display: block; touch-action: none; }
+
+  /* ---------- Надпись версии (просто текст) ---------- */
+  #version-label {
+    position: fixed;
+    left: 12px;
+    top: 10px;
+    z-index: 15;
+    pointer-events: none;
+    user-select: none;
+    color: #ffffff;
+    font-family: monospace, system-ui, sans-serif;
+    font-size: 14px;
+    font-weight: bold;
+    text-shadow: 1px 1px 0 #000, -1px -1px 0 #000, 1px -1px 0 #000, -1px 1px 0 #000;
+  }
+
+  /* ---------- Прицел ---------- */
+  #crosshair {
+    position: fixed; left: 50%; top: 50%;
+    width: 20px; height: 20px;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 5;
+    opacity: 0.9;
+  }
+  #crosshair::before, #crosshair::after {
+    content: ''; position: absolute;
+    background: #fff;
+    mix-blend-mode: difference;
+  }
+  #crosshair::before {
+    left: 50%; top: 0; width: 2px; height: 100%;
+    transform: translateX(-50%);
+  }
+  #crosshair::after {
+    top: 50%; left: 0; height: 2px; width: 100%;
+    transform: translateY(-50%);
+  }
+
+  /* ---------- Джойстик ---------- */
+  #joystick {
+    position: fixed;
+    left: 18px; bottom: 24px;
+    width: 132px; height: 132px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.14);
+    border: 2px solid rgba(255, 255, 255, 0.32);
+    touch-action: none;
+    z-index: 20;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  }
+  #joystick-knob {
+    position: absolute;
+    left: 50%; top: 50%;
+    width: 58px; height: 58px;
+    margin: -29px 0 0 -29px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.65);
+    border: 2px solid rgba(255, 255, 255, 0.85);
+    pointer-events: none;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+  }
+
+  /* ---------- Кнопка прыжка ---------- */
+  #jump-btn {
+    position: fixed;
+    right: 28px; bottom: 36px;
+    width: 96px; height: 96px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.22);
+    border: 2px solid rgba(255, 255, 255, 0.5);
+    color: #fff;
+    font-size: 38px;
+    font-family: inherit;
+    line-height: 1;
+    touch-action: none;
+    z-index: 20;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+    padding: 0;
+    cursor: pointer;
+  }
+  #jump-btn:active { background: rgba(255, 255, 255, 0.42); }
+</style>
+</head>
+<body>
+<div id="version-label">alpha test 0.0.1</div>
+<div id="crosshair"></div>
+<div id="joystick"><div id="joystick-knob"></div></div>
+<button id="jump-btn" aria-label="Прыжок">⤒</button>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+  }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+
+/* ============================================================
+   1. РЕНДЕР, СЦЕНА, КАМЕРА
+   ============================================================ */
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.outputColorSpace = THREE.SRGBColorSpace;
+document.body.appendChild(renderer.domElement);
+const canvas = renderer.domElement;
+
+const scene = new THREE.Scene();
+const HORIZON = 0xb8cce0;
+scene.fog = new THREE.Fog(HORIZON, 14, 48);
+
+const camera = new THREE.PerspectiveCamera(75, innerWidth / innerHeight, 0.05, 400);
+camera.rotation.order = 'YXZ';
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+/* ============================================================
+   2. НЕБО (градиент как в Beta 1.8.1)
+   ============================================================ */
+{
+  const skyGeo = new THREE.SphereGeometry(150, 16, 12);
+  const skyMat = new THREE.ShaderMaterial({
+    uniforms: {
+      topColor:    { value: new THREE.Color(0x74a5f0) },
+      bottomColor: { value: new THREE.Color(HORIZON) },
+    },
+    vertexShader: `
+      varying vec3 vDir;
+      void main() {
+        vDir = position;
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 topColor;
+      uniform vec3 bottomColor;
+      varying vec3 vDir;
+      void main() {
+        float h = normalize(vDir).y;
+        float t = smoothstep(-0.08, 0.55, h);
+        gl_FragColor = vec4(mix(bottomColor, topColor, t), 1.0);
+      }
+    `,
+    side: THREE.BackSide,
+    depthWrite: false,
+    fog: false,
+  });
+  const sky = new THREE.Mesh(skyGeo, skyMat);
+  sky.frustumCulled = false;
+  sky.renderOrder = -1;
+  scene.add(sky);
+  scene.userData.sky = sky;
+}
+
+/* ============================================================
+   3. ПРОЦЕДУРНЫЕ ТЕКСТУРЫ 16×16 (стиль Beta 1.8.1)
+   ============================================================ */
+const texDrawers = {
+  grass_top(ctx) {
+    ctx.fillStyle = '#7bbf4a'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 140; i++) {
+      const x = (Math.random() * 16) | 0, y = (Math.random() * 16) | 0;
+      const r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#69aa3b' : r < 0.66 ? '#8ed05c' : '#5f9e33';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+  grass_side(ctx) {
+    ctx.fillStyle = '#79583a'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 110; i++) {
+      const x = (Math.random() * 16) | 0, y = (Math.random() * 16) | 0;
+      const r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#6a4d31' : r < 0.66 ? '#8a6845' : '#7a5a3e';
+      ctx.fillRect(x, y, 1, 1);
+    }
+    for (let x = 0; x < 16; x++) {
+      const h = 3 + ((Math.random() * 3) | 0);
+      for (let y = 0; y < h; y++) {
+        const r = Math.random();
+        ctx.fillStyle = r < 0.33 ? '#69aa3b' : r < 0.66 ? '#7bbf4a' : '#5f9e33';
+        ctx.fillRect(x, y, 1, 1);
+      }
+    }
+  },
+  dirt(ctx) {
+    ctx.fillStyle = '#79583a'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 160; i++) {
+      const x = (Math.random() * 16) | 0, y = (Math.random() * 16) | 0;
+      const r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#6a4d31' : r < 0.66 ? '#8a6845' : '#7a5a3e';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+  stone(ctx) {
+    ctx.fillStyle = '#7f7f7f'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 160; i++) {
+      const x = (Math.random() * 16) | 0, y = (Math.random() * 16) | 0;
+      const r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#6e6e6e' : r < 0.66 ? '#8c8c8c' : '#757575';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+  bedrock(ctx) {
+    ctx.fillStyle = '#555'; ctx.fillRect(0, 0, 16, 16);
+    for (let i = 0; i < 220; i++) {
+      const x = (Math.random() * 16) | 0, y = (Math.random() * 16) | 0;
+      const r = Math.random();
+      ctx.fillStyle = r < 0.33 ? '#3a3a3a' : r < 0.66 ? '#6a6a6a' : '#4a4a4a';
+      ctx.fillRect(x, y, 1, 1);
+    }
+  },
+};
+
+const texCache = new Map();
+function getTex(name) {
+  if (texCache.has(name)) return texCache.get(name);
+  const c = document.createElement('canvas');
+  c.width = c.height = 16;
+  const ctx = c.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  texDrawers[name](ctx);
+  const t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestMipmapLinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 4;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  texCache.set(name, t);
+  return t;
+}
+
+/* ============================================================
+   4. БЛОКИ
+   ============================================================ */
+const BLOCK_DEFS = {
+  grass:   { top: 'grass_top', side: 'grass_side', bottom: 'dirt' },
+  dirt:    { all: 'dirt' },
+  stone:   { all: 'stone' },
+  bedrock: { all: 'bedrock' },
+};
+
+const matCache = new Map();
+function getBlockMaterials(type) {
+  if (matCache.has(type)) return matCache.get(type);
+  const def = BLOCK_DEFS[type];
+  const sideT = getTex(def.all || def.side);
+  const topT  = getTex(def.all || def.top  || def.side);
+  const botT  = getTex(def.all || def.bottom || def.side);
+  const mk = t => new THREE.MeshBasicMaterial({ map: t, vertexColors: true });
+  const mats = [mk(sideT), mk(sideT), mk(topT), mk(botT), mk(sideT), mk(sideT)];
+  matCache.set(type, mats);
+  return mats;
+}
+
+/* Геометрия куба с фиксированным затенением граней */
+function srgbToLinear(s) {
+  return s <= 0.04045 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+}
+
+const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+{
+  // Порядок граней: +X, -X, +Y, -Y, +Z, -Z
+  const faceShadeSRGB = [0.6, 0.6, 1.0, 0.5, 0.8, 0.8];
+  const colors = new Float32Array(24 * 3);
+  let i = 0;
+  for (let f = 0; f < 6; f++) {
+    const v = srgbToLinear(faceShadeSRGB[f]);
+    for (let k = 0; k < 4; k++) {
+      colors[i++] = v; colors[i++] = v; colors[i++] = v;
+    }
+  }
+  boxGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+}
+
+/* ============================================================
+   5. МИР 27×27
+   ============================================================ */
+const SIZE = 27;
+const STONE_LAYERS = 3;
+const blocks = new Map();
+const bkey = (x, y, z) => x + ',' + y + ',' + z;
+
+function addBlock(x, y, z, type) {
+  const k = bkey(x, y, z);
+  if (blocks.has(k)) return;
+  const mesh = new THREE.Mesh(boxGeo, getBlockMaterials(type));
+  mesh.position.set(x + 0.5, y + 0.5, z + 0.5);
+  mesh.userData.cell = { x, y, z, type };
+  scene.add(mesh);
+  blocks.set(k, mesh);
+}
+
+function removeBlock(x, y, z) {
+  const k = bkey(x, y, z);
+  const m = blocks.get(k);
+  if (!m) return;
+  scene.remove(m);
+  blocks.delete(k);
+}
+
+// y = 0: трава, y = -1..-3: камень, y = -4: бедрок
+for (let x = 0; x < SIZE; x++) {
+  for (let z = 0; z < SIZE; z++) {
+    addBlock(x, 0, z, 'grass');
+    for (let i = 1; i <= STONE_LAYERS; i++) {
+      addBlock(x, -i, z, 'stone');
+    }
+    addBlock(x, -(STONE_LAYERS + 1), z, 'bedrock');
+  }
+}
+
+/* ============================================================
+   6. ИГРОК И ФИЗИКА
+   ============================================================ */
+const CENTER = (SIZE - 1) / 2 + 0.5;
+const player = {
+  pos: new THREE.Vector3(CENTER, 1, CENTER),
+  vel: new THREE.Vector3(),
+  radius: 0.3,
+  height: 1.8,
+  eye: 1.62,
+  speed: 5.0,
+  jumpSpeed: 8.4,
+  onGround: false,
+};
+
+let yaw = 0, pitch = 0;
+
+function collides() {
+  const r = player.radius, h = player.height, p = player.pos;
+  const x0 = Math.floor(p.x - r), x1 = Math.floor(p.x + r);
+  const y0 = Math.floor(p.y),     y1 = Math.floor(p.y + h);
+  const z0 = Math.floor(p.z - r), z1 = Math.floor(p.z + r);
+  for (let x = x0; x <= x1; x++)
+    for (let y = y0; y <= y1; y++)
+      for (let z = z0; z <= z1; z++) {
+        if (!blocks.has(bkey(x, y, z))) continue;
+        if (x < p.x + r && x + 1 > p.x - r &&
+            y < p.y + h && y + 1 > p.y &&
+            z < p.z + r && z + 1 > p.z - r) return true;
+      }
+  return false;
+}
+
+function moveAxis(axis, delta) {
+  if (delta === 0) return;
+  const old = player.pos[axis];
+  player.pos[axis] += delta;
+  if (collides()) {
+    player.pos[axis] = old;
+    if (axis === 'y' && delta < 0) player.onGround = true;
+    player.vel[axis] = 0;
+  }
+}
+
+/* ============================================================
+   7. УПРАВЛЕНИЕ
+   ============================================================ */
+const keys = Object.create(null);
+const moveInput = { x: 0, y: 0 };
+
+// --- Клавиатура ---
+addEventListener('keydown', (e) => {
+  keys[e.code] = true;
+  if (e.code === 'Space') e.preventDefault();
+});
+addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+// --- Кнопка прыжка ---
+const jumpBtn = document.getElementById('jump-btn');
+jumpBtn.addEventListener('pointerdown', (e) => { e.preventDefault(); keys['Space'] = true; });
+jumpBtn.addEventListener('pointerup',     () => { keys['Space'] = false; });
+jumpBtn.addEventListener('pointercancel', () => { keys['Space'] = false; });
+jumpBtn.addEventListener('pointerleave',  () => { keys['Space'] = false; });
+
+// --- Джойстик ---
+const joyEl  = document.getElementById('joystick');
+const knobEl = document.getElementById('joystick-knob');
+let joyId = null;
+
+function joyUpdate(cx, cy) {
+  const r = joyEl.getBoundingClientRect();
+  const jx = r.left + r.width / 2;
+  const jy = r.top + r.height / 2;
+  let dx = cx - jx, dy = cy - jy;
+  const max = r.width / 2;
+  const d = Math.hypot(dx, dy);
+  if (d > max) { dx = dx / d * max; dy = dy / d * max; }
+  knobEl.style.transform = `translate(${dx}px, ${dy}px)`;
+  moveInput.x = dx / max;
+  moveInput.y = dy / max;
+}
+function joyReset() {
+  moveInput.x = 0; moveInput.y = 0;
+  knobEl.style.transform = '';
+}
+joyEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (joyId !== null) return;
+  joyId = e.pointerId;
+  joyEl.setPointerCapture(e.pointerId);
+  joyUpdate(e.clientX, e.clientY);
+});
+joyEl.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== joyId) return;
+  joyUpdate(e.clientX, e.clientY);
+});
+joyEl.addEventListener('pointerup', (e) => {
+  if (e.pointerId !== joyId) return;
+  joyId = null; joyReset();
+});
+joyEl.addEventListener('pointercancel', (e) => {
+  if (e.pointerId !== joyId) return;
+  joyId = null; joyReset();
+});
+
+// --- Мышь: обзор ---
+document.addEventListener('mousemove', (e) => {
+  if (document.pointerLockElement !== canvas) return;
+  yaw   -= e.movementX * 0.0022;
+  pitch -= e.movementY * 0.0022;
+  const lim = Math.PI / 2 - 0.001;
+  pitch = Math.max(-lim, Math.min(lim, pitch));
+});
+
+// --- Ломаем ---
+let mouseDown = false;
+let breakCooldown = 0;
+const isTouch = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+
+// --- Тач на канвасе: свайп = обзор, тап = сломать ---
+let lookId = null;
+let lookStartX = 0, lookStartY = 0, lookLastX = 0, lookLastY = 0;
+let lookMoved = false;
+
+canvas.addEventListener('pointerdown', (e) => {
+  if (e.pointerType === 'mouse') {
+    if (document.pointerLockElement !== canvas) {
+      const p = canvas.requestPointerLock();
+      if (p && p.catch) p.catch(() => {});
+      return;
+    }
+    if (e.button === 0) { mouseDown = true; breakCooldown = 0; }
+    return;
+  }
+
+  if (lookId !== null) return;
+  lookId = e.pointerId;
+  lookStartX = lookLastX = e.clientX;
+  lookStartY = lookLastY = e.clientY;
+  lookMoved = false;
+});
+
+document.addEventListener('pointermove', (e) => {
+  if (e.pointerId !== lookId) return;
+  const dx = e.clientX - lookLastX;
+  const dy = e.clientY - lookLastY;
+  lookLastX = e.clientX;
+  lookLastY = e.clientY;
+  if (Math.hypot(e.clientX - lookStartX, e.clientY - lookStartY) > 8) lookMoved = true;
+  if (lookMoved) {
+    yaw   -= dx * 0.005;
+    pitch -= dy * 0.005;
+    const lim = Math.PI / 2 - 0.001;
+    pitch = Math.max(-lim, Math.min(lim, pitch));
+  }
+});
+
+document.addEventListener('pointerup', (e) => {
+  if (e.pointerType === 'mouse') {
+    if (e.button === 0) mouseDown = false;
+    return;
+  }
+  if (e.pointerId !== lookId) return;
+  if (!lookMoved) breakBlock();
+  lookId = null;
+});
+
+document.addEventListener('pointercancel', (e) => {
+  if (e.pointerId === lookId) lookId = null;
+});
+
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* ============================================================
+   8. ЛУЧ ИЗ ЦЕНТРА ЭКРАНА
+   ============================================================ */
+const raycaster = new THREE.Raycaster();
+raycaster.far = 6;
+const SCREEN_CENTER = new THREE.Vector2(0, 0);
+
+function getTarget() {
+  raycaster.setFromCamera(SCREEN_CENTER, camera);
+  const hits = raycaster.intersectObjects([...blocks.values()], false);
+  return hits.length ? hits[0] : null;
+}
+
+function breakBlock() {
+  const hit = getTarget();
+  if (!hit) return;
+  const c = hit.object.userData.cell;
+  if (c.type === 'bedrock') return;   // бедрок не ломается
+  removeBlock(c.x, c.y, c.z);
+}
+
+/* --- Подсветка блока под прицелом --- */
+const highlight = new THREE.LineSegments(
+  new THREE.EdgesGeometry(new THREE.BoxGeometry(1.004, 1.004, 1.004)),
+  new THREE.LineBasicMaterial({
+    color: 0x000000, transparent: true, opacity: 0.4, fog: false,
+  })
+);
+highlight.visible = false;
+scene.add(highlight);
+
+/* ============================================================
+   9. ИГРОВОЙ ЦИКЛ
+   ============================================================ */
+const forward = new THREE.Vector3();
+const right   = new THREE.Vector3();
+const moveDir = new THREE.Vector3();
+
+let lastTime = performance.now();
+
+function update(dt) {
+  forward.set(-Math.sin(yaw), 0, -Math.cos(yaw));
+  right.set(  Math.cos(yaw), 0, -Math.sin(yaw));
+
+  moveDir.set(0, 0, 0);
+
+  if (keys['KeyW'] || keys['ArrowUp'])    moveDir.add(forward);
+  if (keys['KeyS'] || keys['ArrowDown'])  moveDir.sub(forward);
+  if (keys['KeyD'] || keys['ArrowRight']) moveDir.add(right);
+  if (keys['KeyA'] || keys['ArrowLeft'])  moveDir.sub(right);
+
+  if (moveInput.x !== 0 || moveInput.y !== 0) {
+    moveDir.addScaledVector(forward, -moveInput.y);
+    moveDir.addScaledVector(right,    moveInput.x);
+  }
+
+  if (moveDir.lengthSq() > 1) moveDir.normalize();
+  moveDir.multiplyScalar(player.speed);
+
+  player.vel.x = moveDir.x;
+  player.vel.z = moveDir.z;
+
+  if (keys['Space'] && player.onGround) {
+    player.vel.y = player.jumpSpeed;
+    player.onGround = false;
+  }
+
+  player.vel.y -= 28 * dt;
+  if (player.vel.y < -50) player.vel.y = -50;
+
+  player.onGround = false;
+  moveAxis('x', player.vel.x * dt);
+  moveAxis('z', player.vel.z * dt);
+  moveAxis('y', player.vel.y * dt);
+
+  if (player.pos.y < -30) {
+    player.pos.set(CENTER, 3, CENTER);
+    player.vel.set(0, 0, 0);
+  }
+
+  camera.position.set(player.pos.x, player.pos.y + player.eye, player.pos.z);
+  camera.rotation.set(pitch, yaw, 0);
+  scene.userData.sky.position.copy(camera.position);
+
+  if (mouseDown) {
+    breakCooldown -= dt;
+    if (breakCooldown <= 0) {
+      breakCooldown = 0.22;
+      breakBlock();
+    }
+  }
+
+  const t = getTarget();
+  if (t) {
+    highlight.visible = true;
+    highlight.position.copy(t.object.position);
+  } else {
+    highlight.visible = false;
+  }
+}
+
+function animate(now) {
+  requestAnimationFrame(animate);
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+  update(dt);
+  renderer.render(scene, camera);
+}
+requestAnimationFrame(animate);
+
+/* ============================================================
+   10. АВТО-СКРЫТИЕ МОБИЛЬНЫХ КНОПОК НА ДЕСКТОПЕ
+   ============================================================ */
+if (!isTouch) {
+  document.getElementById('joystick').style.display = 'none';
+  document.getElementById('jump-btn').style.display = 'none';
+}
+</script>
+</body>
+</html>
